@@ -37,15 +37,7 @@ cd conference-rag
 ### 3. Set Up Python Environment
 
 ```bash
-python -m venv .venv
-
-# Activate:
-# Windows:
-.venv\Scripts\activate
-# macOS/Linux:
-source .venv/bin/activate
-
-pip install -r requirements.txt
+uv sync
 ```
 
 ### 4. Set Up Config Files
@@ -86,8 +78,7 @@ Your site will be live at: `https://YOUR-USERNAME.github.io/conference-rag/`
 
 - [ ] You have your own fork on GitHub
 - [ ] Repo is cloned locally
-- [ ] Virtual environment is activated (`(.venv)` appears in your terminal prompt)
-- [ ] `pip install` completed without errors
+- [ ] `uv sync` completed without errors
 - [ ] `config.public.json` and `config.secret.json` exist (with placeholder values)
 - [ ] Site is live at your GitHub Pages URL (with setup banner)
 

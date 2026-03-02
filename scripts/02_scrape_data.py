@@ -169,7 +169,7 @@ def main():
     print(f"\n✅ Scraped {len(talks_data)} talks!")
     print(f"   Years: {min(t['year'] for t in talks_data)} – {max(t['year'] for t in talks_data)}")
     print(f"   Output: {OUTPUT_FILE}")
-    print(f"\nNext: python scripts/03_import_data.py")
+    print("\nNext: python scripts/03_import_data.py")
 
 
 if __name__ == '__main__':

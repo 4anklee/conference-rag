@@ -28,6 +28,7 @@ Follow the step-by-step guides in the `steps/` folder:
 | [07](steps/07_make_it_yours.md) | 🚀 Yours | Add Feature & Reflection | 20 min |
 
 **Prerequisites:**
+
 - [Supabase](https://supabase.com) account (free tier)
 - [GitHub](https://github.com) account
 - [OpenAI API key](https://platform.openai.com/api-keys) (~$0.60 usage)
@@ -83,7 +84,8 @@ conference-rag/
 ├── config.public.json          # Supabase URL + anon key (safe to commit)
 ├── config.secret.json          # API keys & secrets (git-ignored, YOU create this)
 ├── config.secret.example.json  # Template for config.secret.json
-├── requirements.txt            # Python dependencies
+├── pyproject.toml              # Python project & dependencies (uv)
+├── uv.lock                     # Locked dependency versions
 ├── .nojekyll                   # Tells GitHub Pages not to use Jekyll
 ├── steps/                      # Step-by-step assignment guides
 │   ├── 00_overview.md

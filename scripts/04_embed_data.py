@@ -52,7 +52,7 @@ def main():
     print("=" * 60)
     print(f"Generating Embeddings for {len(records):,} Sentences")
     print("=" * 60)
-    print(f"   Model: text-embedding-3-small (1,536 dimensions)")
+    print("   Model: text-embedding-3-small (1,536 dimensions)")
     print(f"   Batch size: {BATCH_SIZE}\n")
 
     # Check if there's a partial result we can resume from
@@ -109,7 +109,7 @@ def main():
         json.dump(embedded_records, f, ensure_ascii=False)
 
     file_size_mb = os.path.getsize(OUTPUT_FILE) / (1024 * 1024)
-    print(f"\n✅ Embedding complete!")
+    print("\n✅ Embedding complete!")
     print(f"   Embedded: {len(embedded_records):,} sentences")
     if errors:
         print(f"   Errors:   {errors:,}")
@@ -121,8 +121,8 @@ def main():
     print(f"   💰 Estimated cost: ${cost:.4f}")
 
     print(f"\n💾 Saved to {OUTPUT_FILE} ({file_size_mb:.1f} MB)")
-    print(f"   This file is your safety net — embeddings are preserved on disk.")
-    print(f"\nNext: python scripts/05_update_embeddings.py")
+    print("   This file is your safety net — embeddings are preserved on disk.")
+    print("\nNext: python scripts/05_update_embeddings.py")
 
 
 if __name__ == '__main__':
