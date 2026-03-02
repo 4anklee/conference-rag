@@ -126,7 +126,7 @@ def main():
     embedded_result = (
         client.table("sentence_embeddings")
         .select("id", count=CountMethod.exact)
-        .not_("embedding", "is", "null")
+        .filter("embedding", "not.is", "null")
         .limit(1)
         .execute()
     )
