@@ -286,6 +286,8 @@ function showApp(user) {
     if (userEmailSpan) userEmailSpan.textContent = user.email;
     // Check search readiness when user logs in
     checkSearchReadiness();
+    // Load question history
+    loadHistory();
 }
 
 function showMessage(text, type) {
@@ -539,28 +541,17 @@ async function askQuestion() {
         // Step 4: Fetch full talk text for richer context
         const enrichedTalks = await fetchFullTalkText(topTalks);
 
-        // Step 5: Generate answer with full context
-        const answer = await generateAnswer(question, enrichedTalks);
-
         // Compute overall similarity (weighted avg across source talks)
         const overallSimilarity = topTalks.reduce((sum, t) => sum + t.avgSimilarity, 0) / topTalks.length;
         const overallBadge = similarityBadge(overallSimilarity);
         const simClass = overallSimilarity >= 0.70 ? 'similarity-high'
             : overallSimilarity >= 0.40 ? 'similarity-mid' : 'similarity-low';
 
-        let html = `<div class="result-card rag-answer rag-${simClass}">
-            <div class="result-card-header">
-                <div class="result-title">AI Answer</div>
-                ${overallBadge}
-            </div>
-            <div class="result-sentences">${escapeHtml(answer)}</div>
-        </div>`;
-
-        // Show source talks with per-talk similarity badges and links
-        html += '<div class="result-sources"><strong>Sources:</strong></div>';
+        // Build source talks HTML
+        let sourcesHtml = '<div class="result-sources"><strong>Sources:</strong></div>';
         for (const talk of topTalks) {
             const talkBadge = similarityBadge(talk.avgSimilarity);
-            html += `<div class="result-card result-source">
+            sourcesHtml += `<div class="result-card result-source">
                 <div class="result-card-header">
                     <div>
                         <div class="result-title"><a href="${escapeHtml(talk.url)}" target="_blank" class="result-title-link">${escapeHtml(talk.title)}</a></div>
@@ -570,7 +561,37 @@ async function askQuestion() {
                 </div>
             </div>`;
         }
+
+        // Step 5: Stream the answer token-by-token
+        // Render the answer card immediately with a blinking cursor
+        let html = `<div class="result-card rag-answer rag-${simClass}">
+            <div class="result-card-header">
+                <div class="result-title">AI Answer</div>
+                ${overallBadge}
+            </div>
+            <div class="result-sentences" id="rag-answer-text"><span class="streaming-cursor"></span></div>
+        </div>`;
+        html += sourcesHtml;
         showResults('rag', html);
+        showLoading(false);
+
+        const answerEl = document.getElementById('rag-answer-text');
+
+        await streamAnswer(question, enrichedTalks, (textSoFar) => {
+            if (answerEl) {
+                answerEl.innerHTML = escapeHtml(textSoFar) + '<span class="streaming-cursor"></span>';
+            }
+        });
+
+        // Remove cursor when done
+        const finalAnswer = answerEl ? answerEl.textContent || '' : '';
+        if (answerEl) {
+            answerEl.innerHTML = escapeHtml(finalAnswer);
+        }
+
+        // Save to question history
+        const sources = topTalks.map(t => ({ title: t.title, speaker: t.speaker, url: t.url }));
+        saveToHistory(question, finalAnswer, sources);
 
     } catch (error) {
         showResults('rag', `<div class="result-error">Error: ${escapeHtml(error.message)}</div>`);
@@ -680,7 +701,7 @@ async function fetchFullTalkText(talks) {
     }));
 }
 
-// Generate answer via Edge Function
+// Generate answer via Edge Function (non-streaming fallback)
 async function generateAnswer(question, contextTalks) {
     const { data, error } = await supabaseClient.functions.invoke('generate-answer', {
         body: {
@@ -694,6 +715,64 @@ async function generateAnswer(question, contextTalks) {
     }
 
     return data.answer;
+}
+
+// Stream answer via Edge Function using SSE
+async function streamAnswer(question, contextTalks, onToken) {
+    const { data: { session } } = await supabaseClient.auth.getSession();
+    if (!session) throw new Error('Not authenticated');
+
+    const response = await fetch(`${SUPABASE_CONFIG.url}/functions/v1/generate-answer`, {
+        method: 'POST',
+        headers: {
+            'Authorization': `Bearer ${session.access_token}`,
+            'Content-Type': 'application/json',
+            'apikey': SUPABASE_CONFIG.anonKey
+        },
+        body: JSON.stringify({
+            question: question,
+            context_talks: contextTalks,
+            stream: true
+        })
+    });
+
+    if (!response.ok) {
+        const err = await response.json().catch(() => ({}));
+        throw new Error(err.error || 'Failed to generate answer');
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let fullAnswer = '';
+
+    while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+
+        for (const line of lines) {
+            const trimmed = line.trim();
+            if (!trimmed || !trimmed.startsWith('data: ')) continue;
+            const data = trimmed.slice(6);
+            if (data === '[DONE]') return fullAnswer;
+
+            try {
+                const parsed = JSON.parse(data);
+                if (parsed.content) {
+                    fullAnswer += parsed.content;
+                    onToken(fullAnswer);
+                }
+            } catch {
+                // Skip malformed chunks
+            }
+        }
+    }
+
+    return fullAnswer;
 }
 
 // ============================================
@@ -751,6 +830,99 @@ if (ragBtn) ragBtn.addEventListener('click', askQuestion);
 if (ragInput) ragInput.addEventListener('keypress', (e) => {
     if (e.key === 'Enter') askQuestion();
 });
+
+// Clear history
+const clearHistoryBtn = document.getElementById('clear-history-btn');
+if (clearHistoryBtn) clearHistoryBtn.addEventListener('click', clearHistory);
+
+// ============================================
+// QUESTION HISTORY
+// ============================================
+
+async function saveToHistory(question, answer, sources) {
+    if (!supabaseClient) return;
+    try {
+        const { data: { user } } = await supabaseClient.auth.getUser();
+        if (!user) return;
+
+        await supabaseClient.from('question_history').insert({
+            user_id: user.id,
+            question,
+            answer,
+            sources
+        });
+
+        loadHistory();
+    } catch (err) {
+        console.warn('Failed to save history:', err.message);
+    }
+}
+
+async function loadHistory() {
+    if (!supabaseClient) return;
+    const listEl = document.getElementById('history-list');
+    if (!listEl) return;
+
+    try {
+        const { data, error } = await supabaseClient
+            .from('question_history')
+            .select('id, question, answer, sources, created_at')
+            .order('created_at', { ascending: false })
+            .limit(20);
+
+        if (error) throw error;
+
+        if (!data || data.length === 0) {
+            listEl.innerHTML = '<div class="no-results">No questions yet. Ask something above!</div>';
+            return;
+        }
+
+        let html = '';
+        for (const item of data) {
+            const date = new Date(item.created_at);
+            const timeStr = date.toLocaleDateString() + ' ' + date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            const sources = item.sources || [];
+            const sourceNames = sources.map(s => escapeHtml(s.title)).join(', ');
+
+            html += `<div class="history-item" data-id="${item.id}">
+                <div class="history-question" title="Click to re-ask">${escapeHtml(item.question)}</div>
+                <div class="history-answer">${escapeHtml(item.answer).slice(0, 150)}${item.answer.length > 150 ? '...' : ''}</div>
+                ${sourceNames ? `<div class="history-sources">${sourceNames}</div>` : ''}
+                <div class="history-time">${timeStr}</div>
+            </div>`;
+        }
+        listEl.innerHTML = html;
+
+        // Click a history item to re-fill the RAG input
+        listEl.querySelectorAll('.history-question').forEach(el => {
+            el.addEventListener('click', () => {
+                if (ragInput) {
+                    ragInput.value = el.textContent;
+                    ragInput.focus();
+                }
+            });
+        });
+    } catch (err) {
+        console.warn('Failed to load history:', err.message);
+    }
+}
+
+async function clearHistory() {
+    if (!supabaseClient) return;
+    try {
+        const { data: { user } } = await supabaseClient.auth.getUser();
+        if (!user) return;
+
+        await supabaseClient
+            .from('question_history')
+            .delete()
+            .eq('user_id', user.id);
+
+        loadHistory();
+    } catch (err) {
+        console.warn('Failed to clear history:', err.message);
+    }
+}
 
 // ============================================
 // DEPLOY TIMESTAMP

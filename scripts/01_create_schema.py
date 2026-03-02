@@ -103,6 +103,45 @@ ON page_views FOR SELECT
 TO anon, authenticated
 USING (true);
 
+-- ============================================
+-- Question History table (per-user RAG history)
+-- ============================================
+
+CREATE TABLE IF NOT EXISTS question_history (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL,
+    question TEXT NOT NULL,
+    answer TEXT NOT NULL,
+    sources JSONB DEFAULT '[]',
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS question_history_user_id_idx
+ON question_history(user_id);
+
+ALTER TABLE question_history ENABLE ROW LEVEL SECURITY;
+
+-- Users can only read their own history
+DROP POLICY IF EXISTS "Users can read own history" ON question_history;
+CREATE POLICY "Users can read own history"
+ON question_history FOR SELECT
+TO authenticated
+USING (auth.uid() = user_id);
+
+-- Users can insert their own history
+DROP POLICY IF EXISTS "Users can insert own history" ON question_history;
+CREATE POLICY "Users can insert own history"
+ON question_history FOR INSERT
+TO authenticated
+WITH CHECK (auth.uid() = user_id);
+
+-- Users can delete their own history
+DROP POLICY IF EXISTS "Users can delete own history" ON question_history;
+CREATE POLICY "Users can delete own history"
+ON question_history FOR DELETE
+TO authenticated
+USING (auth.uid() = user_id);
+
 -- Create function for similarity search
 CREATE OR REPLACE FUNCTION match_sentences(
   query_embedding vector(1536),
